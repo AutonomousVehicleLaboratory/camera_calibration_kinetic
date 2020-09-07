@@ -248,6 +248,7 @@ class Calibrator(object):
         self.good_corners = []
         # Set to true when we have sufficiently varied samples to calibrate
         self.goodenough = False
+        self.goodenough_force = False
         self.param_ranges = [0.7, 0.7, 0.4, 0.5]
         self.name = name
         self.last_frame_corners = None
@@ -258,6 +259,10 @@ class Calibrator(object):
         self.burst_counter_max = 5
         self.burst_counter = 0
         self.show_board_corners = False
+        self.deblur = True
+        self.diff_threshold = 10
+        self.diff_db = []
+        self.board_corners_list = []
 
     def mkgray(self, msg):
         """
@@ -328,7 +333,7 @@ class Calibrator(object):
         d = min([param_distance(params, p) for p in db_params])
         #print "d = %.3f" % d #DEBUG
         # TODO What's a good threshold here? Should it be configurable?
-        if d <= 0.2 and not self.burst:
+        if d <= 0.2 and not self.burst and not self.deblur:
             return False
 
         if self.max_chessboard_speed > 0:
@@ -337,6 +342,55 @@ class Calibrator(object):
 
         # All tests passed
         return True
+    
+    def check_good_sample_and_add(self, gray, params, corners, board, four_corners, mean_diff, last_frame_corners, diff = None):
+        def param_distance(p1, p2):
+            return sum([abs(a-b) for (a,b) in zip(p1, p2)])
+        
+        if self.deblur and mean_diff > self.diff_threshold:
+            return
+
+        if self.max_chessboard_speed > 0:
+            if not self.is_slow_moving(corners, last_frame_corners):
+                return
+        
+        db_params = [sample[0] for sample in self.db]
+        param_distance_list = [param_distance(params, p) for p in db_params]
+        
+        #print "d = %.3f" % d #DEBUG
+        # TODO What's a good threshold here? Should it be configurable?
+        if len(param_distance_list) > 0 and min(param_distance_list) <= 0.2 and not self.burst:
+            if not self.deblur:
+                return
+            else:
+                min_idx = np.argmin(param_distance_list)
+                if self.db[min_idx][2] > mean_diff:
+                    self.db[min_idx] = (params, gray, mean_diff)
+                    self.good_corners[min_idx] = (corners, board)
+                    self.board_corners_list[min_idx] = four_corners
+                    self.diff_db[min_idx] = (mean_diff, diff)
+                    print(("*** Replaced with sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f" % tuple([min_idx] + params + [mean_diff])))
+                else:
+                    return
+        else:
+            self.db.append((params, gray, mean_diff))
+            self.good_corners.append((corners, board))
+            self.board_corners_list.append(four_corners)
+            if self.deblur:
+                self.diff_db.append((mean_diff, diff))
+            print(("*** Added sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f" % tuple([len(self.db)] + params + [mean_diff])))
+        
+        self.select = False
+        if self.burst:
+            self.burst_counter -= 1
+            print("Burst mode, {} images left".format(self.burst_counter))
+    
+    def update_diff_within_corners(self, diff, four_corners, x_scale, y_scale):
+        min_x, min_y = np.min(four_corners, axis=0)
+        max_x, max_y = np.max(four_corners, axis=0)
+        cropped_diff = diff[int(min_y*y_scale):int(max_y*y_scale), int(min_x*x_scale):int(max_x*x_scale)]
+        mean_diff = np.mean(np.abs(cropped_diff))
+        return mean_diff, cropped_diff
 
     _param_names = ["X", "Y", "Size", "Skew"]
 
@@ -359,6 +413,8 @@ class Calibrator(object):
         # If we have lots of samples, allow calibration even if not all parameters are green
         # TODO Awkward that we update self.goodenough instead of returning it
         self.goodenough = (len(self.db) >= 40) or all([p == 1.0 for p in progress])
+        if self.goodenough_force:
+            self.goodenough = True
 
         return list(zip(self._param_names, min_params, max_params, progress))
 
@@ -618,7 +674,7 @@ class MonoCalibrator(Calibrator):
         if 'name' not in kwargs:
             kwargs['name'] = 'narrow_stereo/left'
         super(MonoCalibrator, self).__init__(*args, **kwargs)
-        self.board_corners_list = []
+
 
     def cal(self, images):
         """
@@ -792,7 +848,15 @@ class MonoCalibrator(Calibrator):
 
         Returns a MonoDrawable message with the display image and progress info.
         """
-        gray = self.mkgray(msg)
+        if self.deblur:
+            pre_msg, cur_msg = msg
+            pre_gray = self.mkgray(pre_msg)
+            gray = self.mkgray(cur_msg)
+            diff = gray.astype(np.int16) - pre_gray.astype(np.int16)
+            mean_diff = np.mean(np.abs(diff))
+        else:
+            gray = self.mkgray(msg)
+            mean_diff = np.inf
         linear_error = -1
 
         # Get display-image-to-be (scrib) and detection of the calibration target
@@ -826,6 +890,10 @@ class MonoCalibrator(Calibrator):
                 cv2.drawChessboardCorners(scrib, (board.n_cols, board.n_rows), downsampled_corners, True)
                 downsampled_corners = downsampled_corners.reshape([board.n_rows, board.n_cols, -1])
                 four_corners = downsampled_corners[[0,0,-1,-1],[0, -1, -1, 0]].astype(np.int32)
+                if self.deblur:
+                    mean_diff_new, cropped_diff = self.update_diff_within_corners(diff, four_corners, x_scale, y_scale)
+                    print("mean_diff:", mean_diff, mean_diff_new)
+                    mean_diff = mean_diff_new
                 if self.show_board_corners is True:
                     for board_corners in self.board_corners_list:
                         cv2.polylines(scrib, [board_corners], True, (255, 0, 255), 1)
@@ -833,15 +901,10 @@ class MonoCalibrator(Calibrator):
                 # Add sample to database only if it's sufficiently different from any previous sample.
                 params = self.get_parameters(corners, board, (gray.shape[1], gray.shape[0]))
                 if (not self.manual_select) or self.select or (self.burst and self.burst_counter > 0):
-                    if self.is_good_sample(params, corners, self.last_frame_corners):
-                        self.db.append((params, gray))
-                        self.good_corners.append((corners, board))
-                        self.board_corners_list.append(four_corners)
-                        print(("*** Added sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f" % tuple([len(self.db)] + params)))
-                        self.select = False
-                        if self.burst:
-                            self.burst_counter -= 1
-                            print("Burst mode, {} images left".format(self.burst_counter))
+                    if self.deblur:
+                        self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, diff)
+                    else:
+                         self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners)
         
         self.last_frame_corners = corners
         rv = MonoDrawable()
@@ -853,7 +916,7 @@ class MonoCalibrator(Calibrator):
     def do_calibration(self, dump = False):
         if not self.good_corners:
             print("**** Collecting corners for all images! ****") #DEBUG
-            images = [i for (p, i) in self.db]
+            images = [i for (p, i, d) in self.db]
             self.good_corners = self.collect_corners(images)
         # Dump should only occur if user wants it
         if dump:
@@ -880,11 +943,15 @@ class MonoCalibrator(Calibrator):
             ti.mtime = int(time.time())
             tf.addfile(tarinfo=ti, fileobj=s)
 
-        ims = [("left-%04d.png" % i, im) for i,(_, im) in enumerate(self.db)]
+        ims = [("left-%04d.png" % i, im) for i,(_, im, _) in enumerate(self.db)]
         for (name, im) in ims:
             taradd(name, cv2.imencode(".png", im)[1].tostring())
         taradd('ost.yaml', self.yaml())
         taradd('ost.txt', self.ost())
+        if self.deblur:
+            diff_ims = [("left-%04d-%.2f.png" % (i, mean_diff), im) for i,(mean_diff, im) in enumerate(self.diff_db)]
+            for (name, im) in diff_ims:
+                taradd(name, cv2.imencode(".png", im)[1].tostring())
 
     def do_tarfile_calibration(self, filename):
         archive = tarfile.open(filename, 'r')

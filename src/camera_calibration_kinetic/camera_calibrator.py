@@ -106,6 +106,16 @@ class DisplayThread(threading.Thread):
                     print("Show history board corners!")
                 else:
                     print("Disabled showing history board corners.")
+            elif k == ord("d"):
+                self.opencv_calibration_node._deblur = not self.opencv_calibration_node._deblur
+                self.opencv_calibration_node.c.deblur = self.opencv_calibration_node._deblur
+                if self.opencv_calibration_node._deblur:
+                    print("Threshold by image blur!")
+                else:
+                    print("Disabled threshold by image blur.")
+            elif k == ord("f"):
+                self.opencv_calibration_node.c.goodenough_force = True
+                print("Force calibrate enalbed! You can calibrate now.")
 
 class ConsumerThread(threading.Thread):
     def __init__(self, queue, function):
@@ -119,6 +129,19 @@ class ConsumerThread(threading.Thread):
             while len(self.queue) == 0:
                 time.sleep(0.1)
             self.function(self.queue[0])
+
+class ConsumerThreadDeBlur(threading.Thread):
+    def __init__(self, queue, function):
+        threading.Thread.__init__(self)
+        self.queue = queue
+        self.function = function
+
+    def run(self):
+        while True:
+            # wait for an image (could happen at the very beginning when the queue is still empty)
+            while len(self.queue) == 0 or len(self.queue[0]) != 2:
+                time.sleep(0.1)
+            self.function(self.queue.popleft())
 
 
 class CalibrationNode:
@@ -146,6 +169,7 @@ class CalibrationNode:
         self._camera_name = camera_name
         self._max_chessboard_speed = max_chessboard_speed
         self._manual_select = manual_select
+        self._deblur = True
         lsub = message_filters.Subscriber('left', sensor_msgs.msg.Image)
         rsub = message_filters.Subscriber('right', sensor_msgs.msg.Image)
         ts = synchronizer([lsub, rsub], 4)
@@ -163,6 +187,7 @@ class CalibrationNode:
 
         self.q_mono = deque([], 1)
         self.q_stereo = deque([], 1)
+        self.q_mono_deblur = deque([], 5)
 
         self.c = None
 
@@ -174,13 +199,22 @@ class CalibrationNode:
         sth.setDaemon(True)
         sth.start()
 
+        mbth = ConsumerThreadDeBlur(self.q_mono_deblur, self.handle_monocular)
+        mbth.setDaemon(True)
+        mbth.start()
+
     def redraw_stereo(self, *args):
         pass
     def redraw_monocular(self, *args):
         pass
 
     def queue_monocular(self, msg):
-        self.q_mono.append(msg)
+        if not self._deblur:
+            self.q_mono.append(msg)
+        else:
+            if len(self.q_mono_deblur) > 0:
+                self.q_mono_deblur[-1].append(msg)
+            self.q_mono_deblur.append([msg])
 
     def queue_stereo(self, lmsg, rmsg):
         self.q_stereo.append((lmsg, rmsg))
