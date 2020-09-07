@@ -42,6 +42,7 @@ import cv2
 import cv_bridge
 import image_geometry
 import math
+import numpy as np
 import numpy.linalg
 import pickle
 import random
@@ -256,6 +257,7 @@ class Calibrator(object):
         self.burst = False
         self.burst_counter_max = 5
         self.burst_counter = 0
+        self.show_board_corners = False
 
     def mkgray(self, msg):
         """
@@ -432,14 +434,18 @@ class Calibrator(object):
                     corners_unrefined = downsampled_corners.copy()
                     corners_unrefined[:, :, 0] *= x_scale
                     corners_unrefined[:, :, 1] *= y_scale
-                    radius = int(math.ceil(scale))
+                    radius = int(11) # int(math.ceil(scale))
                     if len(img.shape) == 3 and img.shape[2] == 3:
                         mono = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                     else:
                         mono = img
+                    
                     cv2.cornerSubPix(mono, corners_unrefined, (radius,radius), (-1,-1),
                                                   ( cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1 ))
                     corners = corners_unrefined
+                    # print('corners_unrefined:', upsampled_corners)
+                    # print('corners_refined:', corners)
+
                 else:
                     corners = downsampled_corners
         else:
@@ -478,7 +484,7 @@ class Calibrator(object):
         print("R = ", numpy.ravel(r).tolist())
         print("P = ", numpy.ravel(p).tolist())
 
-    def lrost(self, name, d, k, r, p):
+    def lrost(self, name, d, k, r, p, rmse=None):
         calmessage = (
         "# oST version 5.0 parameters\n"
         + "\n"
@@ -511,10 +517,12 @@ class Calibrator(object):
         + " ".join(["%8f" % p[1,i] for i in range(4)]) + "\n"
         + " ".join(["%8f" % p[2,i] for i in range(4)]) + "\n"
         + "\n")
+        if rmse is not None:
+            calmessage += "reprojection_error\n" + ("%8f" % rmse) + "\n\n"
         assert len(calmessage) < 525, "Calibration info must be less than 525 bytes"
         return calmessage
 
-    def lryaml(self, name, d, k, r, p):
+    def lryaml(self, name, d, k, r, p, rvecs=None, tvecs=None, rmse=None):
         calmessage = (""
         + "image_width: " + str(self.size[0]) + "\n"
         + "image_height: " + str(self.size[1]) + "\n"
@@ -535,8 +543,21 @@ class Calibrator(object):
         + "projection_matrix:\n"
         + "  rows: 3\n"
         + "  cols: 4\n"
-        + "  data: [" + ", ".join(["%8f" % i for i in p.reshape(1,12)[0]]) + "]\n"
-        + "")
+        + "  data: [" + ", ".join(["%8f" % i for i in p.reshape(1,12)[0]]) + "]\n")
+        if rmse is not None:
+            calmessage += "reprojection_error: " + ("%8f" % rmse) + "\n"
+        if rvecs is not None:
+            calmessage += ("rvecs:\n"
+            + "  rows: {}\n".format(len(rvecs))
+            + "  cols: 3\n"
+            + "  data: [" + ", ".join(["%8f" % i for i in np.array(rvecs).reshape(1,-1)[0]]) + "]\n")
+        if tvecs is not None:
+            calmessage += ("tvecs:\n"
+            + "  rows: {}\n".format(len(tvecs))
+            + "  cols: 3\n"
+            + "  data: [" + ", ".join(["%8f" % i for i in np.array(tvecs).reshape(1,-1)[0]]) + "]\n")
+        
+        calmessage += ""
         return calmessage
 
     def do_save(self):
@@ -597,6 +618,7 @@ class MonoCalibrator(Calibrator):
         if 'name' not in kwargs:
             kwargs['name'] = 'narrow_stereo/left'
         super(MonoCalibrator, self).__init__(*args, **kwargs)
+        self.board_corners_list = []
 
     def cal(self, images):
         """
@@ -649,6 +671,11 @@ class MonoCalibrator(Calibrator):
                    self.distortion,
                    flags = self.calib_flags)
         
+        self.rvecs = rvecs
+        self.tvecs = tvecs
+        self.rmse = ret
+        print('rotation vectors:', rvecs)
+        print('translation vectors:', tvecs)
         print('Camera calibration reprojection error is:\n{}'.format(ret))
 
         # R is identity matrix for monocular calibration
@@ -712,10 +739,10 @@ class MonoCalibrator(Calibrator):
         self.lrreport(self.distortion, self.intrinsics, self.R, self.P)
 
     def ost(self):
-        return self.lrost(self.name, self.distortion, self.intrinsics, self.R, self.P)
+        return self.lrost(self.name, self.distortion, self.intrinsics, self.R, self.P, self.rmse)
 
     def yaml(self):
-        return self.lryaml(self.name, self.distortion, self.intrinsics, self.R, self.P)
+        return self.lryaml(self.name, self.distortion, self.intrinsics, self.R, self.P, self.rvecs, self.tvecs, self.rmse)
 
     def linear_error_from_image(self, image):
         """
@@ -797,13 +824,19 @@ class MonoCalibrator(Calibrator):
             if corners is not None:
                 # Draw (potentially downsampled) corners onto display image
                 cv2.drawChessboardCorners(scrib, (board.n_cols, board.n_rows), downsampled_corners, True)
-
+                downsampled_corners = downsampled_corners.reshape([board.n_rows, board.n_cols, -1])
+                four_corners = downsampled_corners[[0,0,-1,-1],[0, -1, -1, 0]].astype(np.int32)
+                if self.show_board_corners is True:
+                    for board_corners in self.board_corners_list:
+                        cv2.polylines(scrib, [board_corners], True, (255, 0, 255), 1)
+                
                 # Add sample to database only if it's sufficiently different from any previous sample.
                 params = self.get_parameters(corners, board, (gray.shape[1], gray.shape[0]))
                 if (not self.manual_select) or self.select or (self.burst and self.burst_counter > 0):
                     if self.is_good_sample(params, corners, self.last_frame_corners):
                         self.db.append((params, gray))
                         self.good_corners.append((corners, board))
+                        self.board_corners_list.append(four_corners)
                         print(("*** Added sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f" % tuple([len(self.db)] + params)))
                         self.select = False
                         if self.burst:

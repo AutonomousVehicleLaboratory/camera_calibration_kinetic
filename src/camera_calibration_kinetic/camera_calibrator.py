@@ -100,6 +100,12 @@ class DisplayThread(threading.Thread):
                         print("Burst mode disabled.")
                 else:
                     print("Manual selection mode is not enabled. Press 'm' to enable")
+            elif k == ord("c"):
+                self.opencv_calibration_node.c.show_board_corners = not self.opencv_calibration_node.c.show_board_corners
+                if self.opencv_calibration_node.c.show_board_corners:
+                    print("Show history board corners!")
+                else:
+                    print("Disabled showing history board corners.")
 
 class ConsumerThread(threading.Thread):
     def __init__(self, queue, function):
