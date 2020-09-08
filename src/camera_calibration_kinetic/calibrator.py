@@ -260,7 +260,7 @@ class Calibrator(object):
         self.burst_counter = 0
         self.show_board_corners = False
         self.deblur = True
-        self.diff_threshold = 10
+        self.diff_threshold = 8
         self.diff_db = []
         self.board_corners_list = []
 
@@ -343,7 +343,7 @@ class Calibrator(object):
         # All tests passed
         return True
     
-    def check_good_sample_and_add(self, gray, params, corners, board, four_corners, mean_diff, last_frame_corners, diff = None):
+    def check_good_sample_and_add(self, gray, params, corners, board, four_corners, mean_diff, last_frame_corners, mean_intensity = None, diff = None):
         def param_distance(p1, p2):
             return sum([abs(a-b) for (a,b) in zip(p1, p2)])
         
@@ -368,8 +368,8 @@ class Calibrator(object):
                     self.db[min_idx] = (params, gray, mean_diff)
                     self.good_corners[min_idx] = (corners, board)
                     self.board_corners_list[min_idx] = four_corners
-                    self.diff_db[min_idx] = (mean_diff, diff)
-                    print(("*** Replaced with sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f" % tuple([min_idx] + params + [mean_diff])))
+                    self.diff_db[min_idx] = (mean_diff, diff, mean_intensity)
+                    print(("*** Replaced with sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f, intensity = %.2f" % tuple([min_idx] + params + [mean_diff, mean_intensity])))
                 else:
                     return
         else:
@@ -377,20 +377,22 @@ class Calibrator(object):
             self.good_corners.append((corners, board))
             self.board_corners_list.append(four_corners)
             if self.deblur:
-                self.diff_db.append((mean_diff, diff))
-            print(("*** Added sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f" % tuple([len(self.db)] + params + [mean_diff])))
+                self.diff_db.append((mean_diff, diff, mean_intensity))
+            print(("*** Added sample %d, p_x = %.3f, p_y = %.3f, p_size = %.3f, skew = %.3f, diff = %.3f, intensity = %.2f" % tuple([len(self.db)] + params + [mean_diff, mean_intensity])))
         
         self.select = False
         if self.burst:
             self.burst_counter -= 1
             print("Burst mode, {} images left".format(self.burst_counter))
     
-    def update_diff_within_corners(self, diff, four_corners, x_scale, y_scale):
+    def get_corner_boundarys(self, four_corners, x_scale, y_scale):
         min_x, min_y = np.min(four_corners, axis=0)
         max_x, max_y = np.max(four_corners, axis=0)
-        cropped_diff = diff[int(min_y*y_scale):int(max_y*y_scale), int(min_x*x_scale):int(max_x*x_scale)]
-        mean_diff = np.mean(np.abs(cropped_diff))
-        return mean_diff, cropped_diff
+        min_y = min_y*y_scale
+        max_y = max_y*y_scale
+        min_x = min_x*x_scale
+        max_x = max_x*x_scale
+        return min_x, max_x, min_y, max_y
 
     _param_names = ["X", "Y", "Size", "Skew"]
 
@@ -891,23 +893,38 @@ class MonoCalibrator(Calibrator):
                 downsampled_corners = downsampled_corners.reshape([board.n_rows, board.n_cols, -1])
                 four_corners = downsampled_corners[[0,0,-1,-1],[0, -1, -1, 0]].astype(np.int32)
                 if self.deblur:
-                    mean_diff_new, cropped_diff = self.update_diff_within_corners(diff, four_corners, x_scale, y_scale)
-                    print("mean_diff:", mean_diff, mean_diff_new)
+                    min_x, max_x, min_y, max_y = self.get_corner_boundarys(four_corners, x_scale, y_scale)
+                    cropped_diff = diff[int(min_y):int(max_y), int(min_x):int(max_x)]
+                    mean_diff_new = np.mean(np.abs(cropped_diff))
+                    mean_intensity = np.mean(gray[int(min_y):int(max_y), int(min_x):int(max_x)])
                     mean_diff = mean_diff_new
-                if self.show_board_corners is True:
-                    for board_corners in self.board_corners_list:
-                        cv2.polylines(scrib, [board_corners], True, (255, 0, 255), 1)
+                
                 
                 # Add sample to database only if it's sufficiently different from any previous sample.
                 params = self.get_parameters(corners, board, (gray.shape[1], gray.shape[0]))
                 if (not self.manual_select) or self.select or (self.burst and self.burst_counter > 0):
                     if self.deblur:
-                        self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, diff)
+                        self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, mean_intensity=mean_intensity, diff=diff)
                     else:
-                         self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners)
-        
+                         self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, mean_intensity=mean_intensity)
+            if self.show_board_corners is True:
+                for db_idx, board_corners in enumerate(self.board_corners_list):
+                    if self.db[db_idx][2] < 4:
+                        color = (0, 255, 0)
+                    elif self.db[db_idx][2] < 6:
+                        color = (0, 255, 255)
+                    else:
+                        color = (0, 0, 255)
+                    cv2.polylines(scrib, [board_corners], True, color, 1)
+                    
         self.last_frame_corners = corners
         rv = MonoDrawable()
+        # if self.deblur:
+        #     diff_resized = cv2.resize(diff, (scrib.shape[1], scrib.shape[0]))
+        #     diff_bgr = cv2.cvtColor(diff_resized.astype(np.float32), cv2.COLOR_GRAY2BGR)
+        #     print(type(diff_bgr), type(scrib))
+        #     print(diff_bgr.dtype, scrib.dtype)
+        #     scrib = cv2.vconcat([scrib, diff_bgr])
         rv.scrib = scrib
         rv.params = self.compute_goodenough()
         rv.linear_error = linear_error
@@ -949,7 +966,7 @@ class MonoCalibrator(Calibrator):
         taradd('ost.yaml', self.yaml())
         taradd('ost.txt', self.ost())
         if self.deblur:
-            diff_ims = [("left-%04d-%.2f.png" % (i, mean_diff), im) for i,(mean_diff, im) in enumerate(self.diff_db)]
+            diff_ims = [("left-%04d-diff-%.2f-intensity-%.2f.png" % (i, mean_diff, mean_intensity), im) for i,(mean_diff, im, mean_intensity) in enumerate(self.diff_db)]
             for (name, im) in diff_ims:
                 taradd(name, cv2.imencode(".png", im)[1].tostring())
 
