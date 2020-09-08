@@ -62,7 +62,7 @@ def display(win_name, img):
 
 def cal_from_tarfile(boards, tarname, mono = False, upload = False, calib_flags = 0, visualize = False, alpha=1.0):
     if mono:
-        calibrator = MonoCalibrator(boards, calib_flags)
+        calibrator = MonoCalibrator(boards, calib_flags, deblur=False)
     else:
         calibrator = StereoCalibrator(boards, calib_flags)
 

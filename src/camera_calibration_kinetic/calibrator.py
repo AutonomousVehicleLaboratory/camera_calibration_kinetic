@@ -221,7 +221,7 @@ class Calibrator(object):
     Base class for calibration system
     """
     def __init__(self, boards, flags=0, pattern=Patterns.Chessboard, name='', 
-    checkerboard_flags=cv2.CALIB_CB_FAST_CHECK, max_chessboard_speed = -1.0, manual_select = False):
+    checkerboard_flags=cv2.CALIB_CB_FAST_CHECK, max_chessboard_speed=-1.0, manual_select=False, deblur=True):
         # Ordering the dimensions for the different detectors is actually a minefield...
         if pattern == Patterns.Chessboard:
             # Make sure n_cols > n_rows to agree with OpenCV CB detector output
@@ -259,7 +259,7 @@ class Calibrator(object):
         self.burst_counter_max = 5
         self.burst_counter = 0
         self.show_board_corners = False
-        self.deblur = True
+        self.deblur = deblur
         self.diff_threshold = 8
         self.diff_db = []
         self.board_corners_list = []
