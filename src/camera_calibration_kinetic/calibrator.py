@@ -49,7 +49,9 @@ import random
 import sensor_msgs.msg
 import tarfile
 import time
+import thread
 from distutils.version import LooseVersion
+from show_extrinsics import plot_extrinsics
 
 
 # Supported calibration patterns
@@ -214,6 +216,50 @@ def _get_circles(img, board, pattern):
 
     return (ok, corners)
 
+class BoardPoseFigure():
+    def __init__(self, calibrator, min_image=1):
+        from matplotlib import pyplot as plt
+        self.fig = plt.figure(figsize=(10,12))
+        self.calibrator = calibrator
+        self.db_count = len(self.calibrator.db)
+        self.figure = None
+        self.min_image = min_image
+        
+    def get_figure(self):
+        return self.figure
+
+    def draw(self):
+        
+        # we only update figure when the db_count is updated
+        if self.db_count == len(self.calibrator.db):
+            return
+        
+        self.db_count = len(self.calibrator.db)
+        if self.db_count < self.min_image:
+            return
+        
+        # calibrate in a thread
+        thread.start_new_thread(self.draw_in_thread, (self.fig, ))
+    
+    def draw_in_thread(self, fig):
+        # enough images, calibrate
+        calibrated = self.calibrator.calibrated
+        self.calibrator.do_calibration(sim=True)
+        self.calibrator.calibrated = calibrated
+        rvecs = np.array(self.calibrator.rvecs).reshape([-1,3])
+        tvecs = np.array(self.calibrator.tvecs).reshape([-1,3])
+        extrinsics = np.concatenate([rvecs, tvecs], axis=1)
+        # update figure
+        figure1, figure2 = plot_extrinsics(fig, self.calibrator.intrinsics,
+                        extrinsics,
+                        board_width = 6,
+                        board_height = 9,
+                        square_size = 0.74,
+                        get_image=True)
+        print(figure1.shape)
+        figure1 = cv2.resize(figure1[300:-300, 200:-200], (480, 480))
+        figure2 = cv2.resize(figure2[300:-300, 200:-200], (480, 480))
+        self.figure = cv2.vconcat([figure1, figure2])
 
 # TODO self.size needs to come from CameraInfo, full resolution
 class Calibrator(object):
@@ -263,6 +309,7 @@ class Calibrator(object):
         self.diff_threshold = 8
         self.diff_db = []
         self.board_corners_list = []
+        self.board_pose_figure = BoardPoseFigure(self)
 
     def mkgray(self, msg):
         """
@@ -732,9 +779,9 @@ class MonoCalibrator(Calibrator):
         self.rvecs = rvecs
         self.tvecs = tvecs
         self.rmse = ret
-        print('rotation vectors:', rvecs)
-        print('translation vectors:', tvecs)
-        print('Camera calibration reprojection error is:\n{}'.format(ret))
+        # print('rotation vectors:', rvecs)
+        # print('translation vectors:', tvecs)
+        # print('Camera calibration reprojection error is:\n{}'.format(ret))
 
         # R is identity matrix for monocular calibration
         self.R = numpy.eye(3, dtype=numpy.float64)
@@ -916,7 +963,15 @@ class MonoCalibrator(Calibrator):
                     else:
                         color = (0, 0, 255)
                     cv2.polylines(scrib, [board_corners], True, color, 1)
-                    
+
+            self.board_pose_figure.draw()
+        board_pose_figure = self.board_pose_figure.get_figure()
+        if board_pose_figure is not None:
+            height = self.board_pose_figure.figure.shape[0]
+            width = int(height / scrib.shape[0] * scrib.shape[1])
+            scrib = cv2.resize(scrib, (width, height))
+            scrib = cv2.hconcat([scrib, self.board_pose_figure.figure])
+
         self.last_frame_corners = corners
         rv = MonoDrawable()
         # if self.deblur:
@@ -930,7 +985,7 @@ class MonoCalibrator(Calibrator):
         rv.linear_error = linear_error
         return rv
 
-    def do_calibration(self, dump = False):
+    def do_calibration(self, dump = False, sim=False):
         if not self.good_corners:
             print("**** Collecting corners for all images! ****") #DEBUG
             images = [i for (p, i, d) in self.db]
@@ -941,10 +996,11 @@ class MonoCalibrator(Calibrator):
                         open("/tmp/camera_calibration_%08x.pickle" % random.getrandbits(32), "w"))
         self.size = (self.db[0][1].shape[1], self.db[0][1].shape[0]) # TODO Needs to be set externally
         self.cal_fromcorners(self.good_corners)
-        self.calibrated = True
-        # DEBUG
-        print((self.report()))
-        print((self.ost()))
+        if not sim:
+            self.calibrated = True
+            # DEBUG
+            print((self.report()))
+            print((self.ost()))
 
     def do_tarfile_save(self, tf):
         """ Write images and calibration solution to a tarfile object """
