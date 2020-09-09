@@ -9,7 +9,8 @@ import cv2 as cv
 import yaml
 
 from numpy import linspace
-import matplotlib.pyplot as plt
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
 
 def inverse_homogeneoux_matrix(M):
     R = M[0:3, 0:3]
@@ -277,7 +278,6 @@ def plot_extrinsics(fig, camera_matrix, extrinsics, board_width, board_height, s
         
         plt.show()
     print('Done')
-
 
 if __name__ == '__main__':
     print(__doc__)

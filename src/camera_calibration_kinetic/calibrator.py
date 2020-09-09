@@ -49,7 +49,7 @@ import random
 import sensor_msgs.msg
 import tarfile
 import time
-import thread
+import threading
 from distutils.version import LooseVersion
 from show_extrinsics import plot_extrinsics
 
@@ -218,6 +218,8 @@ def _get_circles(img, board, pattern):
 
 class BoardPoseFigure():
     def __init__(self, calibrator, min_image=1):
+        import matplotlib
+        matplotlib.use('Agg')
         from matplotlib import pyplot as plt
         self.fig = plt.figure(figsize=(10,12))
         self.calibrator = calibrator
@@ -239,7 +241,9 @@ class BoardPoseFigure():
             return
         
         # calibrate in a thread
-        thread.start_new_thread(self.draw_in_thread, (self.fig, ))
+        tt = threading.Thread(target=self.draw_in_thread, args=(self.fig, ))
+        tt.setDaemon(True)
+        tt.start()
     
     def draw_in_thread(self, fig):
         # enough images, calibrate
@@ -252,11 +256,11 @@ class BoardPoseFigure():
         # update figure
         figure1, figure2 = plot_extrinsics(fig, self.calibrator.intrinsics,
                         extrinsics,
-                        board_width = 6,
-                        board_height = 9,
-                        square_size = 0.74,
+                        board_width = self.calibrator._boards[0].n_rows,
+                        board_height = self.calibrator._boards[0].n_cols,
+                        square_size = self.calibrator._boards[0].dim * 10,
                         get_image=True)
-        print(figure1.shape)
+        
         figure1 = cv2.resize(figure1[300:-300, 200:-200], (480, 480))
         figure2 = cv2.resize(figure2[300:-300, 200:-200], (480, 480))
         self.figure = cv2.vconcat([figure1, figure2])
@@ -316,6 +320,8 @@ class Calibrator(object):
         self.board_yellow_thickness = 2
         self.board_red_thickness = 2
         self.board_current_thickness = 3
+        self.save_image_mode = False
+        self.save_image_list = []
 
     def mkgray(self, msg):
         """
@@ -418,6 +424,10 @@ class Calibrator(object):
             else:
                 min_idx = np.argmin(param_distance_list)
                 if self.db[min_idx][2] > mean_diff:
+                    if self.save_image_mode:
+                        self.save_image_list.append((self.db[min_idx][1], 
+                                                     self.diff_db[min_idx][1], 
+                                                     self.diff_db[min_idx][0]))
                     self.db[min_idx] = (params, gray, mean_diff)
                     self.good_corners[min_idx] = (corners, board)
                     self.board_corners_list[min_idx] = four_corners
@@ -1034,6 +1044,13 @@ class MonoCalibrator(Calibrator):
         taradd('ost.txt', self.ost())
         if self.deblur:
             diff_ims = [("left-%04d-diff-%.2f-intensity-%.2f.png" % (i, mean_diff, mean_intensity), im) for i,(mean_diff, im, mean_intensity) in enumerate(self.diff_db)]
+            for (name, im) in diff_ims:
+                taradd(name, cv2.imencode(".png", im)[1].tostring())
+        if self.save_image_mode:
+            ims = [("left-save-%04d.png" % i, im) for i,(im, _, _) in enumerate(self.save_image_list)]
+            for (name, im) in ims:
+                taradd(name, cv2.imencode(".png", im)[1].tostring())
+            diff_ims = [("left-save-%04d-diff-%.2f.png" % (i, mean_diff), diff) for i,(_, diff, mean_diff) in enumerate(self.save_image_list)]
             for (name, im) in diff_ims:
                 taradd(name, cv2.imencode(".png", im)[1].tostring())
 

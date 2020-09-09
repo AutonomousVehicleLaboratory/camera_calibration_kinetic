@@ -116,6 +116,23 @@ class DisplayThread(threading.Thread):
             elif k == ord("f"):
                 self.opencv_calibration_node.c.goodenough_force = True
                 print("Force calibrate enalbed! You can calibrate now.")
+            elif k == ord("a"):
+                self.opencv_calibration_node.c.save_image_mode = not self.opencv_calibration_node.c.save_image_mode
+                if self.opencv_calibration_node.c.save_image_mode:
+                    print("Save all image within threshold!")
+                else:
+                    print("Disabled saving all images within threshold.")
+            elif k == ord("h"):
+                key_instructions = ("Usage:\n" + \
+                    "'c': enable/disable visualizing board poses.\n"
+                    "'f': force calibration, enable calibration for any number of images.\n"
+                    "'a': enable/disable saving all images within threshold.\n"
+                    "'d': enable/disable deblur, automatic filter image by image difference.\n"
+                    "'m': enable/disable mannual saving mode, only save when you press 'p'.\n"
+                    "'b': enable/disable burst saving mode, will save 5 images when pressing 'p' in mannual mode.\n"
+                    "'s': save a snapshot of the program.\n"
+                    "'q': quite the program.")
+                print(key_instructions)
 
 class ConsumerThread(threading.Thread):
     def __init__(self, queue, function):
