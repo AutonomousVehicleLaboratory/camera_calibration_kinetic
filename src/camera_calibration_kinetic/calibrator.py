@@ -310,6 +310,12 @@ class Calibrator(object):
         self.diff_db = []
         self.board_corners_list = []
         self.board_pose_figure = BoardPoseFigure(self)
+        self.board_green_threshold = 4
+        self.board_yellow_threshold = 6
+        self.board_green_thickness = 1
+        self.board_yellow_thickness = 2
+        self.board_red_thickness = 2
+        self.board_current_thickness = 3
 
     def mkgray(self, msg):
         """
@@ -955,14 +961,19 @@ class MonoCalibrator(Calibrator):
                     else:
                          self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, mean_intensity=mean_intensity)
             if self.show_board_corners is True:
+                if corners is not None:
+                    cv2.polylines(scrib, [four_corners], True, (255, 0, 255), self.board_current_thickness)
                 for db_idx, board_corners in enumerate(self.board_corners_list):
-                    if self.db[db_idx][2] < 4:
+                    if self.db[db_idx][2] < self.board_green_threshold:
                         color = (0, 255, 0)
-                    elif self.db[db_idx][2] < 6:
+                        thickness = self.board_green_thickness
+                    elif self.db[db_idx][2] < self.board_yellow_threshold:
                         color = (0, 255, 255)
+                        thickness = self.board_yellow_thickness
                     else:
                         color = (0, 0, 255)
-                    cv2.polylines(scrib, [board_corners], True, color, 1)
+                        thickness = self.board_red_thickness
+                    cv2.polylines(scrib, [board_corners], True, color, thickness)
 
             self.board_pose_figure.draw()
         board_pose_figure = self.board_pose_figure.get_figure()
