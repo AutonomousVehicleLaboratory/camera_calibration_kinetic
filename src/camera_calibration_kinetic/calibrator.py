@@ -987,6 +987,16 @@ class MonoCalibrator(Calibrator):
 
             self.board_pose_figure.draw()
         board_pose_figure = self.board_pose_figure.get_figure()
+
+        if self.deblur:
+            cv2.putText(scrib, 
+                        "diff:{:.1f}, threshold: {}".format(mean_diff, self.diff_threshold), 
+                        org = (20, 20),
+                        fontFace = cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale = 0.7,
+                        color = (0, 255, 255),
+                        thickness=1,
+                        lineType=cv2.LINE_AA)
         if board_pose_figure is not None:
             height = self.board_pose_figure.figure.shape[0]
             width = int(height / scrib.shape[0] * scrib.shape[1])

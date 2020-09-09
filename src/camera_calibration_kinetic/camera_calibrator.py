@@ -59,6 +59,7 @@ class DisplayThread(threading.Thread):
         threading.Thread.__init__(self)
         self.queue = queue
         self.opencv_calibration_node = opencv_calibration_node
+        self.docprint = False
 
     def run(self):
         cv2.namedWindow("display", cv2.WINDOW_NORMAL)
@@ -122,8 +123,8 @@ class DisplayThread(threading.Thread):
                     print("Save all image within threshold!")
                 else:
                     print("Disabled saving all images within threshold.")
-            elif k == ord("h"):
-                key_instructions = ("Usage:\n" + \
+            elif k == ord("h") or not self.docprint:
+                key_instructions = ("\nUsage:\n" + \
                     "'c': enable/disable visualizing board poses.\n"
                     "'f': force calibration, enable calibration for any number of images.\n"
                     "'a': enable/disable saving all images within threshold.\n"
@@ -131,8 +132,9 @@ class DisplayThread(threading.Thread):
                     "'m': enable/disable mannual saving mode, only save when you press 'p'.\n"
                     "'b': enable/disable burst saving mode, will save 5 images when pressing 'p' in mannual mode.\n"
                     "'s': save a snapshot of the program.\n"
-                    "'q': quite the program.")
+                    "'q': quite the program.\n")
                 print(key_instructions)
+                self.docprint = True
 
 class ConsumerThread(threading.Thread):
     def __init__(self, queue, function):
