@@ -243,7 +243,8 @@ def plot_extrinsics(fig, camera_matrix, extrinsics, board_width, board_height, s
     ax.set_ylabel('z')
     ax.set_zlabel('-y')
     ax.set_title('Extrinsic Parameters Visualization')
-
+    ax.dist = 8
+    
     if get_image:
         canvas = FigureCanvas(fig)
         ax.view_init(elev=90., azim = -90.)
@@ -273,6 +274,7 @@ def plot_extrinsics(fig, camera_matrix, extrinsics, board_width, board_height, s
         return image1[:,:,0:3], image2[:,:,0:3]
 
     else:
+        
         plt.show()
     print('Done')
 
