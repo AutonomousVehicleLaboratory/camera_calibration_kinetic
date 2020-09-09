@@ -971,7 +971,7 @@ class MonoCalibrator(Calibrator):
                         self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, mean_intensity=mean_intensity, diff=diff)
                     else:
                          self.check_good_sample_and_add(gray, params, corners, board, four_corners, mean_diff, self.last_frame_corners, mean_intensity=mean_intensity)
-            if self.show_board_corners is True:
+            if self.show_board_corners:
                 if corners is not None:
                     cv2.polylines(scrib, [four_corners], True, (255, 0, 255), self.board_current_thickness)
                 for db_idx, board_corners in enumerate(self.board_corners_list):
@@ -988,12 +988,12 @@ class MonoCalibrator(Calibrator):
 
             self.board_pose_figure.draw()
         board_pose_figure = self.board_pose_figure.get_figure()
-        if self.show_blur:
-            diff_resized = cv2.resize(diff, (scrib.shape[1], scrib.shape[0]))
-            diff_uint = (diff_resized + 128).astype(np.uint8)
-            diff_bgr = cv2.cvtColor(diff_uint, cv2.COLOR_GRAY2BGR)
-            scrib = cv2.vconcat([scrib, diff_bgr])
         if self.deblur:
+            if self.show_blur:
+                diff_resized = cv2.resize(diff, (scrib.shape[1], scrib.shape[0]))
+                diff_uint = (diff_resized + 128).astype(np.uint8)
+                diff_bgr = cv2.cvtColor(diff_uint, cv2.COLOR_GRAY2BGR)
+                scrib = cv2.vconcat([scrib, diff_bgr])
             cv2.putText(scrib, 
                         "diff:{:.1f}, threshold: {}".format(mean_diff, self.diff_threshold), 
                         org = (20, 20),
