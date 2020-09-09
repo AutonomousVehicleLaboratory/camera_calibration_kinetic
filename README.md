@@ -6,7 +6,7 @@ Improvements
 3. Added show board pose in image view.
 4. Corrected the error in refine corners.
 5. print reprojection error and output board pose into yaml
-6. threshold the motion blur by image different within board corners.
+6. threshold the motion blur by image different within board corners. Show blur image and mean_diff value.
 7. show 3d board in real-time
 8. Added image saving mode, save all images within threshold.
 

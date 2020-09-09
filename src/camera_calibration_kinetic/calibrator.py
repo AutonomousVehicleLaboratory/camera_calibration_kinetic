@@ -322,6 +322,7 @@ class Calibrator(object):
         self.board_current_thickness = 3
         self.save_image_mode = False
         self.save_image_list = []
+        self.show_blur = True
 
     def mkgray(self, msg):
         """
@@ -987,7 +988,11 @@ class MonoCalibrator(Calibrator):
 
             self.board_pose_figure.draw()
         board_pose_figure = self.board_pose_figure.get_figure()
-
+        if self.show_blur:
+            diff_resized = cv2.resize(diff, (scrib.shape[1], scrib.shape[0]))
+            diff_uint = (diff_resized + 128).astype(np.uint8)
+            diff_bgr = cv2.cvtColor(diff_uint, cv2.COLOR_GRAY2BGR)
+            scrib = cv2.vconcat([scrib, diff_bgr])
         if self.deblur:
             cv2.putText(scrib, 
                         "diff:{:.1f}, threshold: {}".format(mean_diff, self.diff_threshold), 
@@ -1005,12 +1010,7 @@ class MonoCalibrator(Calibrator):
 
         self.last_frame_corners = corners
         rv = MonoDrawable()
-        # if self.deblur:
-        #     diff_resized = cv2.resize(diff, (scrib.shape[1], scrib.shape[0]))
-        #     diff_bgr = cv2.cvtColor(diff_resized.astype(np.float32), cv2.COLOR_GRAY2BGR)
-        #     print(type(diff_bgr), type(scrib))
-        #     print(diff_bgr.dtype, scrib.dtype)
-        #     scrib = cv2.vconcat([scrib, diff_bgr])
+        
         rv.scrib = scrib
         rv.params = self.compute_goodenough()
         rv.linear_error = linear_error

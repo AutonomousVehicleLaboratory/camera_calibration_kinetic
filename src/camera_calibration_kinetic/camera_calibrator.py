@@ -123,6 +123,12 @@ class DisplayThread(threading.Thread):
                     print("Save all image within threshold!")
                 else:
                     print("Disabled saving all images within threshold.")
+            elif k == ord("g"):
+                self.opencv_calibration_node.c.show_blur = not self.opencv_calibration_node.c.show_blur
+                if self.opencv_calibration_node.c.show_blur:
+                    print("Show image motion blur (image difference)!")
+                else:
+                    print("Disabled Showing image blur.")
             elif k == ord("h") or not self.docprint:
                 key_instructions = ("\nUsage:\n" + \
                     "'c': enable/disable visualizing board poses.\n"
@@ -131,6 +137,7 @@ class DisplayThread(threading.Thread):
                     "'d': enable/disable deblur, automatic filter image by image difference.\n"
                     "'m': enable/disable mannual saving mode, only save when you press 'p'.\n"
                     "'b': enable/disable burst saving mode, will save 5 images when pressing 'p' in mannual mode.\n"
+                    "'g': enable/disable showing image motion blur (difference of image).\n"
                     "'s': save a snapshot of the program.\n"
                     "'q': quite the program.\n")
                 print(key_instructions)
