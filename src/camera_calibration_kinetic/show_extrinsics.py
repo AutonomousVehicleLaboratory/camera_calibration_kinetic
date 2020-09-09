@@ -243,7 +243,7 @@ def plot_extrinsics(fig, camera_matrix, extrinsics, board_width, board_height, s
     ax.set_ylabel('z')
     ax.set_zlabel('-y')
     ax.set_title('Extrinsic Parameters Visualization')
-    ax.dist = 8
+    ax.dist = 8 # zoom in to 8, orignally 10
     
     if get_image:
         canvas = FigureCanvas(fig)
